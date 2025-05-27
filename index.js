@@ -26,7 +26,6 @@ io.on('connection', (socket) => {
 async function sendMessage(phoneNumber, message) {
     const urlChatbot = `http://localhost:6099/chat/sendmessage/${phoneNumber}`;
     const postParameter = { message };
-
     try {
         const response = await fetch(urlChatbot, {
             method: 'POST',
@@ -36,52 +35,55 @@ async function sendMessage(phoneNumber, message) {
 
         if (response.ok) {
             const info = `Pesan ke ${phoneNumber} berhasil dikirim`;
-            io.emit('message', { status: info, type: 'success' });
             console.log(info);
-            return { status: 'success' };
+            return { status: 'success', code: 200 };
         } else {
             const info = `Gagal kirim pesan ke ${phoneNumber}`;
             console.error(info);
             io.emit('message', { status: info, type: 'error' });
-            return { status: 'error' };
+            return { status: 'error', code: 400 };
         }
     } catch (error) {
         const errMsg = `Error kirim pesan ke ${phoneNumber}: ${error.message}`;
         console.error(errMsg);
         io.emit('message', { status: errMsg, type: 'error' });
-        return { status: 'error' };
+        return { status: 'error', code: 500 };
     }
 }
 
 // Fungsi kirim pesan bertahap dengan jeda
 async function sendMessagesWithDelay(data, delayMs) {
     for (const item of data) {
+        console.log(item);
         const { nomor_handphone, message, kode_order } = item;
 
-        // await sendMessage(nomor_handphone, message);
-        let url = `http://localhost:8000/api/update-status/${kode_order}`;
-        let apiToken = 'Vm0xNFlWbFdXWGhVV0doVVlUSlNWVmxVUm5kWFJteFZVMnhPVjFKc1NsZFhhMk0xVmtVeFYxWnFWbUZTVmtwRVZteGFZV014VG5OYVJsWnBVbTVDUlZadE1UUlRNazV6V2toT1ZtSkhVbGhWYkZwM1ZsWmFkRTFVVWxwV01ERTBXVEJXYTJGV1NuUmhSbWhhWWxoU1RGcEhlRnBsUm10NllVWldUbUV4V1RCWFZFSmhZakZrU0ZOc1ZsZGlWR3hYV1ZkMGRrMUdjRlpYYkU1WFRWWmFlVmt3WkRSaFIxWnpWMnRrVjJKWWFGTmFSRVpEVld4Q1ZVMUVNRDA9'
-        let penagihan_total = 0;
-        let penagihan_deliver = 0;
-        let penagihan_not_deliver = 0;
-        fetch(url, {
-            method: 'POST',
-            body: JSON.stringify({
-                status: 1,
-                waktu_kirim: new Date().toISOString()
-            }),
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + apiToken,
-            }
-        }).then(response => response.json()).then(data => {
-            penagihan_total = data.total_penagihan;
-            penagihan_deliver = data.penagihan_deliver;
-            penagihan_not_deliver = data.penagihan_not_deliver
+        const response = await sendMessage(nomor_handphone, message);
+        if (response.code == 200) {
+            let url = `http://localhost:8000/api/update-status/${kode_order}`;
+            let apiToken = 'Vm0xNFlWbFdXWGhVV0doVVlUSlNWVmxVUm5kWFJteFZVMnhPVjFKc1NsZFhhMk0xVmtVeFYxWnFWbUZTVmtwRVZteGFZV014VG5OYVJsWnBVbTVDUlZadE1UUlRNazV6V2toT1ZtSkhVbGhWYkZwM1ZsWmFkRTFVVWxwV01ERTBXVEJXYTJGV1NuUmhSbWhhWWxoU1RGcEhlRnBsUm10NllVWldUbUV4V1RCWFZFSmhZakZrU0ZOc1ZsZGlWR3hYV1ZkMGRrMUdjRlpYYkU1WFRWWmFlVmt3WkRSaFIxWnpWMnRrVjJKWWFGTmFSRVpEVld4Q1ZVMUVNRDA9'
+            let penagihan_total = 0;
+            let penagihan_deliver = 0;
+            let penagihan_not_deliver = 0;
+            fetch(url, {
+                method: 'POST',
+                body: JSON.stringify({
+                    status: 1,
+                    waktu_kirim: new Date().toISOString()
+                }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + apiToken,
+                }
+            }).then(response => response.json()).then(data => {
+                penagihan_total = data.total_penagihan;
+                penagihan_deliver = data.penagihan_deliver;
+                penagihan_not_deliver = data.penagihan_not_deliver
 
-            io.emit('message', { status: `Pesan ke ${nomor_handphone} berhasil dikirim Dengan Kode Order ${kode_order}`, type: 'success', totalPenagihan: penagihan_total, penagihanDeliver: penagihan_deliver, penagihanNotDeliver: penagihan_not_deliver });
+                io.emit('message', { status: `Pesan ke ${nomor_handphone} berhasil dikirim Dengan Kode Order ${kode_order}`, type: 'success', totalPenagihan: penagihan_total, penagihanDeliver: penagihan_deliver, penagihanNotDeliver: penagihan_not_deliver });
 
-        });
+            });
+        }
+
         // Delay kecuali setelah pesan terakhir
         if (item !== data[data.length - 1]) {
             console.log(`Tunggu ${delayMs / 1000} detik sebelum pesan berikutnya...`);
