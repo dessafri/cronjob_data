@@ -53,7 +53,7 @@ async function sendMessage(phoneNumber, message) {
 }
 
 // Fungsi kirim pesan bertahap dengan jeda
-async function sendMessagesWithDelay(data, delayMs) {
+async function sendMessagesWithDelay(data, delayMs, message) {
     for (const item of data) {
         console.log(item);
         const { nomor_handphone, message, kode_order } = item;
@@ -126,7 +126,56 @@ async function getDataCustomer() {
                 'Authorization': `Bearer ${apiToken}`,
             },
         });
-        return response.data;
+        if (response.data.data.length > 0) {
+            const formattedData = response.data.data.map(row => {
+                const dearText = row.dear_text;
+                const namaCustomer = row.name;
+                const fakturData = row.faktur;
+                const totalTagihan = row.total_faktur || 0;
+
+                if (!Array.isArray(fakturData)) return null;
+
+                const hour = new Date().getHours();
+                let salam = (hour >= 4 && hour < 12) ? "Selamat Pagi" :
+                    (hour >= 12 && hour < 15) ? "Selamat Siang" :
+                        (hour >= 15 && hour < 18) ? "Selamat Sore" : "Selamat Malam";
+
+                let textWa = `Yth ${dearText} ${namaCustomer}, ${salam}. Kami dari ${row.nama_cabang} menginformasikan Tagihan Faktur sbb:\n\n`;
+
+                let fakturCounter = 1;
+                fakturData.forEach(faktur => {
+                    const noFaktur = faktur['No Faktur'];
+                    const nilaiFaktur = faktur['nilai_faktur'];
+                    const tglFaktur = faktur['tgl_faktur'];
+
+                    const tglFakturObj = new Date(tglFaktur);
+                    tglFakturObj.setDate(tglFakturObj.getDate() + 30);
+                    const tglJatuhTempo = tglFakturObj.toLocaleDateString('id-ID', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric'
+                    });
+
+                    textWa += `No Faktur ${fakturCounter}: ${noFaktur}\n`;
+                    textWa += `Nilai Tagihan ${fakturCounter}: Rp ${nilaiFaktur.toLocaleString("id-ID")}\n`;
+                    textWa += `Jatuh Tempo ${fakturCounter}: ${tglJatuhTempo}\n\n`;
+                    fakturCounter++;
+                });
+
+                textWa += `Total Tagihan: Rp ${Number(totalTagihan).toLocaleString("id-ID")}\n\n`;
+                textWa += `Pembayaran bisa melalui transfer rekening ${row.kode_bank} ${row.nomor_rekening} a/n. ${row.nama_rekening}, dan utk memudahkan proses tracking serta menghindari penagihan kembali mohon pd saat transfer diberi keterangan Nama_Klinik_Merek_Nomor Faktur.
+                                                \nApabila sudah ditransfer mohon dapat di informasikan ke nomor ini juga.
+                                                \nTerimakasih atas kerjasama dan kepercayaannya kepada kami.
+                                                \nSemoga ${dearText} ${namaCustomer} sehat selalu`;
+
+                return {
+                    nomor_handphone: row.nomor_handphone,
+                    message: textWa,
+                    kode_order: row.kode_order
+                };
+            }).filter(Boolean);
+            return formattedData;
+        }
     } catch (error) {
         console.error('Gagal ambil data customer:', error.message);
         return [];
@@ -134,11 +183,11 @@ async function getDataCustomer() {
 }
 
 // Fungsi kirim batch berulang dengan jeda antar batch
-async function sendWithInterval(data, interval, jeda) {
+async function sendWithInterval(data, interval, jeda, message) {
     // Kirim batch sekarang
     if (Array.isArray(data) && data.length > 0) {
         console.log('Mengirim batch dengan', data.length, 'item...');
-        await sendMessagesWithDelay(data, interval);
+        await sendMessagesWithDelay(data, interval, message);
     } else {
         console.log('Data kosong, tidak ada yang dikirim.');
         return;
@@ -152,7 +201,8 @@ async function sendWithInterval(data, interval, jeda) {
     const nextData = await getDataCustomer();
 
     if (Array.isArray(nextData) && nextData.length > 0) {
-        await sendWithInterval(nextData, interval, jeda); // Ulangi
+        io.emit('message-done', { status: 'Proses Pengiriman Batch Baru Dimulai', type: 'success' });
+        await sendWithInterval(nextData, interval, jeda, "pesan selanjutnya");
     } else {
         console.log('Semua data telah dikirim. Selesai.');
     }
@@ -172,15 +222,17 @@ app.post('/trigger-send', async (req, res) => {
     res.json({ status: 'success', message: 'Pengiriman pesan dimulai' });
 
     // Beri notifikasi ke frontend
-    io.emit('message', {
-        status: `Pengiriman dimulai. Jeda antar pesan: ${req.body.interval} menit, jeda antar batch: ${req.body.jeda} menit.`,
-        type: 'success',
-    });
+    setTimeout(() => {
+        io.emit('message', {
+            status: `Pengiriman dimulai. Jeda antar pesan: ${req.body.interval} menit, jeda antar batch: ${req.body.jeda} menit.`,
+            type: 'success',
+        });
+    }, 3000);
 
     // Tunggu 5 detik lalu mulai proses
     setTimeout(async () => {
-        await sendWithInterval(data, interval, jeda);
-    }, 5000);
+        await sendWithInterval(data, interval, jeda, "pesan batch pertama");
+    }, 7000);
 });
 
 
